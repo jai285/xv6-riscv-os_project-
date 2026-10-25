@@ -184,3 +184,15 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x) / sizeof((x)[0]))
+
+
+// Mini Phone-OS shared declarations
+int             kfreepages(void);
+int             ktotalpages(void);
+void            procinfo_print(void);
+int             setappstate_k(int pid, int state);
+void            battery_tick(void);
+void            lmk_check(void);
+extern int      battery;
+extern int      throttle_on;
+

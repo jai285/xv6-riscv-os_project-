@@ -101,4 +101,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  int app_state;     // FOREGROUND, BACKGROUND or SUSPENDED
+  uint last_active;  // tick when the app last did something
+  int cpu_ticks;     // timer ticks this process has used
+  int slice_left;    // ticks left in current time slice
 };

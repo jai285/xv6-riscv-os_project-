@@ -1,3 +1,4 @@
+#include "appstate.h"
 #include "types.h"
 #include "param.h"
 #include "memlayout.h"
@@ -125,6 +126,10 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  p->app_state = FOREGROUND;
+  p->last_active = ticks;
+  p->cpu_ticks = 0;
+  p->slice_left = 0;
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
@@ -697,7 +702,8 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    printk("%d %s %s", p->pid, state, p->name);
+        printk("%d %s %s app=%d ticks=%d", p->pid, state, p->name,
+           p->app_state, p->cpu_ticks);
     printk("\n");
   }
 }
