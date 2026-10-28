@@ -104,6 +104,13 @@ extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
 extern uint64 sys_sync(void);
 
+extern uint64 sys_procinfo(void);
+extern uint64 sys_meminfo(void);
+extern uint64 sys_getbattery(void);
+extern uint64 sys_setbattery(void);
+extern uint64 sys_setappstate(void);
+extern uint64 sys_setpolicy(void);
+
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
 static uint64 (*syscalls[])(void) = {
@@ -130,6 +137,14 @@ static uint64 (*syscalls[])(void) = {
   [SYS_mkdir]   = sys_mkdir,
   [SYS_close]   = sys_close,
   [SYS_sync]    = sys_sync,
+
+[SYS_procinfo]    sys_procinfo,
+[SYS_meminfo]     sys_meminfo,
+[SYS_getbattery]  sys_getbattery,
+[SYS_setbattery]  sys_setbattery,
+[SYS_setappstate] sys_setappstate,
+[SYS_setpolicy]   sys_setpolicy,
+
   // clang-format on
 };
 

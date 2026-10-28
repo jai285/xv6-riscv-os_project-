@@ -80,3 +80,28 @@ kalloc(void)
     memset((char *)r, 5, PGSIZE); // fill with junk
   return (void *)r;
 }
+
+// Count the number of free 4096-byte physical memory pages
+int
+kfreepages(void)
+{
+  struct run *r;
+  int count = 0;
+
+  acquire(&kmem.lock);
+  r = kmem.freelist;
+  while(r){
+    count++;
+    r = r->next;
+  }
+  release(&kmem.lock);
+
+  return count;
+}
+
+// Total number of physical pages managed by xv6 (PHYSTOP - KERNBASE) / PGSIZE
+int
+ktotalpages(void)
+{
+  return (PHYSTOP - KERNBASE) / PGSIZE;
+}

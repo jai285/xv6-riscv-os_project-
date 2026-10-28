@@ -7,6 +7,9 @@
 #include "proc.h"
 #include "defs.h"
 
+int battery = 100;
+int throttle_on = 1;
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -707,3 +710,66 @@ procdump(void)
     printk("\n");
   }
 }
+
+
+
+// Change process app_state (FOREGROUND, BACKGROUND, SUSPENDED)
+int
+setappstate_k(int pid, int state)
+{
+  struct proc *p;
+
+  if(state < FOREGROUND || state > SUSPENDED)
+    return -1;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid && p->state != UNUSED){
+      p->app_state = state;
+      if(state == FOREGROUND)
+        p->last_active = ticks;
+      release(&p->lock);
+      return 0;
+    }
+    release(&p->lock);
+  }
+  return -1;
+}
+
+// Dump process info to the console
+void
+procinfo_print(void)
+{
+  struct proc *p;
+  static char *states[] = {
+    [UNUSED]    "unused",
+    [USED]      "used",
+    [SLEEPING]  "sleep ",
+    [RUNNABLE]  "runble",
+    [RUNNING]   "run   ",
+    [ZOMBIE]    "zombie"
+  };
+  static char *appstates[] = {
+    [FOREGROUND] "FG",
+    [BACKGROUND] "BG",
+    [SUSPENDED]  "SU"
+  };
+
+  printk("\nPID\tSTATE\tAPP\tTICKS\tNAME\n");
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->state != UNUSED){
+      printk("%d\t%s\t%s\t%d\t%s\n",
+             p->pid,
+             states[p->state],
+             appstates[p->app_state],
+             p->cpu_ticks,
+             p->name);
+    }
+    release(&p->lock);
+  }
+}
+
+// Stubs for battery and killer hooks so compilation succeeds
+void battery_tick(void) {}
+void lmk_check(void) {}

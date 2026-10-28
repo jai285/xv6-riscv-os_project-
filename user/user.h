@@ -26,6 +26,12 @@ int pause(int);
 int uptime(void);
 int sync(void);
 
+int procinfo(void);
+int meminfo(void);
+int getbattery(void);
+int setbattery(int);
+int setappstate(int, int);
+int setpolicy(int);
 // ulib.c
 int stat(const char *, struct stat *);
 char *strcpy(char *, const char *);

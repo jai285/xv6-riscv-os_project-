@@ -43,3 +43,10 @@ entry("sbrk");
 entry("pause");
 entry("uptime");
 entry("sync");
+
+entry("procinfo");
+entry("meminfo");
+entry("getbattery");
+entry("setbattery");
+entry("setappstate");
+entry("setpolicy");

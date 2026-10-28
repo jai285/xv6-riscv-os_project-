@@ -110,3 +110,60 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+uint64
+sys_meminfo(void)
+{
+  uint64 addr;
+  argaddr(0, &addr);
+
+  int free_pgs = kfreepages();
+  int tot_pgs = ktotalpages();
+
+  printk("Memory: %d / %d pages free (%d KB free)\n",
+         free_pgs, tot_pgs, (free_pgs * 4096) / 1024);
+  return 0;
+}
+
+uint64
+sys_procinfo(void)
+{
+  procinfo_print();
+  return 0;
+}
+
+uint64
+sys_setappstate(void)
+{
+  int pid, state;
+  argint(0, &pid);
+  argint(1, &state);
+  return setappstate_k(pid, state);
+}
+
+uint64
+sys_getbattery(void)
+{
+  return battery;
+}
+
+uint64
+sys_setbattery(void)
+{
+  int val;
+  argint(0, &val);
+  if(val < 0 || val > 100)
+    return -1;
+  battery = val;
+  return 0;
+}
+
+uint64
+sys_setpolicy(void)
+{
+  int val;
+  argint(0, &val);
+  throttle_on = val;
+  return 0;
+}
