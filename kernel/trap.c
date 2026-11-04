@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "appstate.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -83,7 +84,14 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if (which_dev == 2)
+{
+p->cpu_ticks++;
+if(p->app_state==FOREGROUND);
+p->last_active=ticks;
+p->slice_left--;
+if(p->slice_left<=0)
     yield();
+}
 
   prepare_return();
 
@@ -154,8 +162,12 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-  if (which_dev == 2 && myproc() != 0)
+  if (which_dev == 2 && myproc() != 0 && myproc()->state==RUNNING)
+{
+myproc()->slice_left--;
+if(myproc()->slice_left<=0)
     yield();
+}
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.

@@ -438,7 +438,7 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-
+  int pass=0;
   c->proc = 0;
   for (;;) {
     // The most recent process to run may have had interrupts
@@ -449,15 +449,27 @@ scheduler(void)
     intr_on();
     intr_off();
 
+    pass++;
+    lmk_check();
     int found = 0;
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if (p->state == RUNNABLE) {
+
+      if(throttle_on && battery<20 && p->app_state == BACKGROUND && pass %3!=0)
+      {
+       release(&p->lock);
+       continue;
+}
+      if (p->state == RUNNABLE && p->app_state !=SUSPENDED) {
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        if(p->app_state == FOREGROUND)
+        { p->slice_left=10;}
+       else
+         {p->slice_left=3;}
         swtch(&c->context, &p->context);
 
         // Don't re-enable interrupts on release.

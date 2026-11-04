@@ -151,7 +151,9 @@ UPROGS=\
 	$U/_forphan\
 	$U/_dorphan\
 	$U/_sync\
-	$U/_testsubsys
+	$U/_testsubsys\
+	$U/_schedtest\
+	$U/_batterytest
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
 
