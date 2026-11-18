@@ -1,13 +1,4 @@
-// launcher: interactive terminal dashboard for the app-lifecycle OS.
-//
-// Shows battery, free memory and the process table, and lets you start
-// apps and move them between FOREGROUND / BACKGROUND / SUSPENDED.
-//
-// Apps are started with a double fork so they are re-parented to init,
-// which reaps them when they exit or are killed by the LMK. (If the
-// launcher were the parent, killed apps would stay zombies holding their
-// memory while the launcher sits blocked waiting for input.)
-
+// launcher.c: interactive terminal dashboard for the app-lifecycle OS.
 #include "kernel/types.h"
 #include "kernel/stat.h"
 #include "user/user.h"
@@ -15,35 +6,67 @@
 
 #define MAXARGS 4
 
+// ANSI escape codes for UI styling
+#define CLEAR_SCREEN "\033[2J\033[H"
+#define RESET        "\033[0m"
+#define BOLD         "\033[1m"
+#define GREEN        "\033[1;32m"
+#define YELLOW       "\033[1;33m"
+#define RED          "\033[1;31m"
+#define CYAN         "\033[1;36m"
+
 static void
 draw_battery(void)
 {
   int b = getbattery();
   int bars = b / 5; // 20 cells
-  printf("Battery: [");
-  for (int i = 0; i < 20; i++)
-    printf("%c", i < bars ? '#' : '.');
-  printf("] %d%%", b);
-  if (b < 20)
-    printf("  (LOW - background apps throttled)");
+  
+  char *color = GREEN;
+  char *icon = "🟢";
+
+  if (b <= 20) {
+    color = RED;
+    icon = "🔴";
+  } else if (b <= 40) {
+    color = YELLOW;
+    icon = "🟡";
+  }
+
+  printf("%s%s Battery: [", color, icon);
+  for (int i = 0; i < 20; i++) {
+    printf("%s", i < bars ? "█" : "░");
+  }
+  printf("] %d%%%s", b, RESET);
+
+  if (b <= 20) {
+    printf(" %s⚠️OW POWER (BG Throttled)%s", RED, RESET);
+  }
   printf("\n");
 }
 
 static void
 dashboard(void)
 {
-  printf("\033[2J\033[H");
-  printf("=========== xv6 APP LAUNCHER ===========\n");
+  printf(CLEAR_SCREEN);
+  printf("%s%s========================================%s\n", CYAN, BOLD, RESET);
+  printf("%s         xv6 MOBILE LAUNCHER         %s\n", BOLD, RESET);
+  printf("%s%s========================================%s\n\n", CYAN, BOLD, RESET);
+
   draw_battery();
+  
+  printf("\n%s--- System Memory ---%s\n", BOLD, RESET);
   meminfo();
+  
+  printf("\n%s--- Active Apps ---%s", BOLD, RESET);
   procinfo();
-  printf("\nCommands:\n");
-  printf("  run <prog> [args]  start an app (FOREGROUND)\n");
-  printf("  hog | idle         start memhog / idleapp\n");
-  printf("  fg|bg|sus <pid>    change app state\n");
-  printf("  kill <pid>         kill an app\n");
-  printf("  batt <0-100>       set battery level\n");
-  printf("  <enter>            refresh      quit  exit\n");
+
+  printf("\n%sCommands:%s\n", CYAN, BOLD);
+  printf("  %srun <prog>%s   Start an app in FG\n", GREEN, RESET);
+  printf("  %sfg/bg/sus%s    Change app state (e.g., fg <pid>)\n", YELLOW, RESET);
+  printf("  %skill <pid>%s   Terminate an app\n", RED, RESET);
+  printf("  %sbatt <pct>%s   Set battery level (0-100)\n", CYAN, RESET);
+  printf("  %shog | idle%s   Spawn test workloads\n", BOLD, RESET);
+  printf("  %s<enter>%s      Refresh UI     %squit%s Exit\n", BOLD, RESET, RED, RESET);
 }
 
 // start prog as an orphan; returns its pid or -1
@@ -106,9 +129,9 @@ start_app(char *prog, char **argv)
 {
   int pid = launch(prog, argv);
   if (pid < 0)
-    printf("launcher: failed to start %s\n", prog);
+    printf("%slauncher: failed to start %s%s\n", RED, prog, RESET);
   else
-    printf("launcher: started %s as pid %d\n", prog, pid);
+    printf("%slauncher: started %s as pid %d%s\n", GREEN, prog, pid, RESET);
 }
 
 int
@@ -119,7 +142,7 @@ main(int argc, char *argv[])
 
   dashboard();
   for (;;) {
-    printf("\nlauncher> ");
+    printf("\n%slauncher> %s", CYAN, RESET);
     memset(buf, 0, sizeof(buf));
     gets(buf, sizeof(buf));
     if (buf[0] == 0)
@@ -143,22 +166,22 @@ main(int argc, char *argv[])
       int pid = launch("idleapp", a);
       if (pid > 0)
         setappstate(pid, BACKGROUND);
-      printf("launcher: idleapp pid %d (BACKGROUND)\n", pid);
+      printf("%slauncher: idleapp pid %d (BACKGROUND)%s\n", GREEN, pid, RESET);
     } else if ((!strcmp(w[0], "fg") || !strcmp(w[0], "bg") ||
                 !strcmp(w[0], "sus")) && n >= 2) {
       int st = w[0][0] == 'f' ? FOREGROUND
              : w[0][0] == 'b' ? BACKGROUND : SUSPENDED;
       if (setappstate(atoi(w[1]), st) < 0)
-        printf("launcher: no such pid %s\n", w[1]);
+        printf("%slauncher: no such pid %s%s\n", RED, w[1], RESET);
     } else if (!strcmp(w[0], "kill") && n >= 2) {
       if (kill(atoi(w[1])) < 0)
-        printf("launcher: no such pid %s\n", w[1]);
+        printf("%slauncher: no such pid %s%s\n", RED, w[1], RESET);
       pause(3);
     } else if (!strcmp(w[0], "batt") && n >= 2) {
       if (setbattery(atoi(w[1])) < 0)
-        printf("launcher: battery must be 0-100\n");
+        printf("%slauncher: battery must be 0-100%s\n", RED, RESET);
     } else {
-      printf("launcher: unknown command\n");
+      printf("%slauncher: unknown command%s\n", RED, RESET);
       pause(10);
     }
     pause(2);

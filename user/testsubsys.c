@@ -19,7 +19,7 @@ main(int argc, char *argv[])
   setbattery(15);
   printf("Updated battery: %d%%\n", getbattery());
 
-  // Reset back to 100%
+ 
   setbattery(100);
 
   exit(0);

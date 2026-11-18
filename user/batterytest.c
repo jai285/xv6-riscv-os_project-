@@ -7,7 +7,7 @@ void
 worker(void)
 {
   volatile long long count = 0;
-  for (long long i = 0; i < 600000000LL; i++) {
+  for (long long i = 0; i < 800000000LL; i++) {
     count += i;
   }
   exit(0);
