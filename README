@@ -1,48 +1,233 @@
-xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
-Version 6 (v6).  xv6 loosely follows the structure and style of v6,
-but is implemented for a modern RISC-V multiprocessor using ANSI C.
+xv6-RISCV APP-LIFECYCLE OS
+==========================
 
-ACKNOWLEDGMENTS
+A phone-style app lifecycle built on top of xv6-riscv. Apps can be in the
+foreground, in the background or suspended; a simulated battery drains over
+time and throttles background apps; and a low-memory killer (LMK) frees
+memory by killing the least important apps first.
 
-xv6 is inspired by John Lions's Commentary on UNIX 6th Edition (Peer
-to Peer Communications; ISBN: 1-57398-013-7; 1st edition (June 14,
-2000)).  See also https://pdos.csail.mit.edu/6.1810/, which provides
-pointers to on-line resources for v6.
+Based on MIT's xv6-riscv (https://github.com/mit-pdos/xv6-riscv). The original
+xv6 license applies to the base code (see LICENSE).
 
-The following people have made contributions: Russ Cox (context switching,
-locking), Cliff Frey (MP), Xiao Yu (MP), Nickolai Zeldovich, and Austin
-Clements.
 
-We are also grateful for the bug reports and patches contributed by
-Abhinavpatel00, Takahiro Aoyagi, Marcelo Arroyo, Hirbod Behnam, Silas
-Boyd-Wickizer, Anton Burtsev, carlclone, Ian Chen, clivezeng, Dan
-Cross, Cody Cutler, Mike CAT, Tej Chajed, Asami Doi,Wenyang Duan,
-echtwerner, eyalz800, Nelson Elhage, Saar Ettinger, Alice Ferrazzi,
-Nathaniel Filardo, flespark, Peter Froehlich, Yakir Goaron, Shivam
-Handa, Matt Harvey, Bryan Henry, jaichenhengjie, Jim Huang, Matúš
-Jókay, John Jolly, Alexander Kapshuk, Anders Kaseorg, kehao95,
-Wolfgang Keller, Jungwoo Kim, Jonathan Kimmitt, Eddie Kohler, Vadim
-Kolontsov, Austin Liew, Bruce Lowekamp, l0stman, Pavan Maddamsetti,
-Imbar Marinescu, Yandong Mao, Matan Shabtay, Hitoshi Mitake, Carmi
-Merimovich, mes900903, Mark Morrissey, mtasm, Joel Nider, Hayato Ohhashi,
-OptimisticSide, papparapa, phosphagos, Harry Porter, Greg Price, Zheng
-qhuo, Quancheng, RayAndrew, Jude Rich, segfault, Ayan Shafqat, Eldar
-Sehayek, Yongming Shen, Fumiya Shigemitsu, snoire, Taojie, Cam Tenny,
-tyfkda, Warren Toomey, Stephen Tu, Alissa Tung, Rafael Ubal, unicornx,
-Amane Uehara, Pablo Ventura, Luc Videau, Xi Wang, WaheedHafez, Keiichi
-Watanabe, Lucas Wolf, Nicolas Wolovick, wxdao, Grant Wu, x653, Andy
-Zhang, Jindong Zhang, Icenowy Zheng, ZhUyU1997, and Zou Chang Wei.
+CONTENTS
+--------
+1.  Features
+2.  Requirements
+3.  Build and run
+4.  How it works
+5.  User programs
+6.  System calls
+7.  Configuration
+8.  Testing and demo
+9.  Source map
+10. Known limitations
+11. Team
 
-ERROR REPORTS
 
-Please send errors and suggestions to Frans Kaashoek and Robert Morris
-(kaashoek,rtm@mit.edu).  The main purpose of xv6 is as a teaching
-operating system for MIT's 6.1810, so we are more interested in
-simplifications and clarifications than new features.
+1. FEATURES
+-----------
+* App states: FOREGROUND, BACKGROUND and SUSPENDED for every process.
+* State-aware scheduler: different time slices per state, SUSPENDED apps
+  never run, and BACKGROUND apps are throttled on low battery.
+* Simulated battery: drains automatically from 100% to 0%.
+* Low-Memory Killer: kills SUSPENDED apps first, then BACKGROUND apps,
+  oldest (least recently active) first. FOREGROUND apps are never killed.
+* Demo programs: an interactive launcher dashboard and a memory stress test.
 
-BUILDING AND RUNNING XV6
 
-You will need a RISC-V "newlib" tool chain from
-https://github.com/riscv/riscv-gnu-toolchain, and qemu compiled for
-riscv64-softmmu.  Once they are installed, and in your shell
-search path, you can run "make qemu".
+2. REQUIREMENTS
+---------------
+* A RISC-V GCC toolchain (riscv64-elf-gcc, or riscv64-linux-gnu-gcc) plus
+  binutils.
+* qemu-system-riscv64.
+
+Arch Linux:
+    sudo pacman -S riscv64-elf-gcc riscv64-elf-binutils qemu-system-riscv
+
+Debian/Ubuntu:
+    sudo apt install gcc-riscv64-linux-gnu qemu-system-misc
+
+If the Makefile cannot find the compiler, pass the prefix explicitly:
+    make qemu TOOLPREFIX=riscv64-elf-
+
+
+3. BUILD AND RUN
+----------------
+    make clean
+    make qemu            # build and boot (3 CPUs, 128 MB RAM)
+    make qemu CPUS=1     # single CPU: best for scheduler/throttle tests
+
+Leave QEMU with: Ctrl-A, release, then X.
+
+
+4. HOW IT WORKS
+---------------
+
+4.1 App states (kernel/appstate.h, kernel/proc.h)
+  Each struct proc has:
+    app_state    FOREGROUND (0), BACKGROUND (1) or SUSPENDED (2)
+    last_active  tick of the last time the app was FOREGROUND-active
+    cpu_ticks    timer ticks this process has used
+    slice_left   ticks left in the current time slice
+  New processes start as FOREGROUND. setappstate_k() changes the state, and
+  moving an app to FOREGROUND refreshes last_active.
+
+4.2 Scheduler (kernel/proc.c: scheduler)
+  * FOREGROUND apps get a slice of 10 ticks, BACKGROUND apps get 3.
+  * SUSPENDED apps are skipped. The one exception is a SUSPENDED process
+    that has been killed: it is allowed to run once so it can notice the
+    kill and exit (otherwise it would stay stuck forever).
+  * When battery < 20% and the throttle policy is on, BACKGROUND apps are
+    only considered on every 3rd scheduler pass.
+  * Every continue/break/return path releases p->lock; the scheduler and
+    setappstate_k() were audited for this.
+
+4.3 Battery (kernel/proc.c, kernel/trap.c)
+  * clockintr() (CPU 0) counts timer ticks and calls battery_tick() every
+    BATTERY_DRAIN_TICKS ticks.
+  * battery_tick() lowers the global battery by 1, never below 0.
+  * battery is protected by battery_lock; getbattery() and setbattery()
+    use the same lock.
+
+4.4 Low-Memory Killer (kernel/proc.c: lmk_check)
+  lmk_check() is called from scheduler() with no locks held.
+    1. It runs at most once per tick (kfreepages() walks the whole free
+       list, so checking more often would be wasteful).
+    2. After a kill it waits LMK_COOLDOWN_TICKS ticks, giving the victim
+       time to exit and be reaped so memory is actually returned.
+    3. If free pages >= LMK_MIN_FREE_PAGES, it does nothing.
+    4. Otherwise it picks ONE victim among non-essential processes:
+         - never init, never FOREGROUND, never one already killed
+         - SUSPENDED before BACKGROUND
+         - within the same class, smallest last_active (oldest) first
+    5. The victim gets p->killed = 1 and is woken if sleeping. A SUSPENDED
+       victim is moved to BACKGROUND so that it can be scheduled and exit.
+    6. The kill is logged on the console:
+         lmk: free pages low, killed pid N (name, STATE)
+  last_active is updated on the timer interrupt only while the process is
+  FOREGROUND, so it really means "when was this app last in use".
+
+  Note: in xv6 a process's memory is freed when its parent calls wait().
+  Apps must therefore have a parent that reaps them. The launcher starts
+  apps so that init (which reaps forever) becomes their parent.
+
+
+5. USER PROGRAMS
+----------------
+launcher   Interactive dashboard: battery bar, free memory, process table.
+             run <prog> [args]   start an app (FOREGROUND)
+             hog                 start memhog
+             idle                start idleapp (set to BACKGROUND)
+             fg|bg|sus <pid>     change an app's state
+             kill <pid>          kill an app
+             batt <0-100>        set the battery level
+             <enter>             refresh the dashboard
+             quit                leave the launcher
+           Apps are started with a double fork so init reaps them.
+
+memhog     Marks itself BACKGROUND (FOREGROUND apps are never killed), then
+           allocates and touches memory in chunks until the LMK kills it.
+             usage: memhog [chunk_kb]     (default 1024 KB)
+
+idleapp    Sleeps forever holding a little memory. A harmless LMK victim.
+
+schedtest, batterytest, testsubsys
+           Tests for scheduling by state, low-battery throttling, and the
+           meminfo/procinfo/battery system calls.
+
+
+6. SYSTEM CALLS
+---------------
+    int setappstate(int pid, int state);   0 on success, -1 on error
+    int getbattery(void);                  current level, 0-100
+    int setbattery(int level);             0-100, -1 if out of range
+    int setpolicy(int on);                 1 = throttle BG apps on low battery
+    int meminfo(void);                     prints free/total pages
+    int procinfo(void);                    prints the process table
+
+
+7. CONFIGURATION (kernel/param.h)
+---------------------------------
+    LMK_MIN_FREE_PAGES    50    kill apps when free pages drop below this
+    LMK_COOLDOWN_TICKS    2     minimum ticks between two LMK kills
+    BATTERY_DRAIN_TICKS   500   timer ticks per 1% of battery drain
+
+One timer tick is about 0.1 s, so the default drains 1% about every 50 s.
+Use a small value (for example 10) to see the drain quickly in a demo.
+
+
+8. TESTING AND DEMO
+-------------------
+
+Quick sanity check
+    $ testsubsys
+
+LMK kill order (the main demo)
+    $ launcher
+    launcher> idle
+    launcher> idle
+    launcher> idle
+    launcher> sus <pid of one idleapp>
+    launcher> hog
+  Expected: the SUSPENDED idleapp is killed first, then the remaining
+  BACKGROUND idleapps (oldest first), and memhog last if memory is still
+  low. Press Enter to refresh and watch free memory recover.
+
+Simple LMK test
+    $ memhog
+  memhog grows until: lmk: free pages low, killed pid N (memhog, BACKGROUND)
+
+Killing a SUSPENDED app
+    launcher> idle
+    launcher> sus <pid>
+    launcher> kill <pid>
+  The pid must disappear from the table.
+
+Low-battery throttling (use a single CPU)
+    make qemu CPUS=1
+    $ batterytest
+  In phase 2 (battery 10%) the BACKGROUND worker should get far fewer ticks
+  than the FOREGROUND worker.
+
+Automatic battery drain
+    $ launcher
+  Refresh periodically (or lower BATTERY_DRAIN_TICKS) and watch the battery
+  bar go down on its own.
+
+Deadlock / regression check
+    $ forktest
+    $ usertests -q
+  The second command should end with: ALL TESTS PASSED
+
+
+9. SOURCE MAP
+-------------
+kernel/appstate.h   FOREGROUND / BACKGROUND / SUSPENDED constants
+kernel/proc.h       struct proc, including the app-lifecycle fields
+kernel/proc.c       scheduler, setappstate_k, battery_tick, lmk_check
+kernel/trap.c       timer interrupt: cpu_ticks, last_active, time slices,
+                    battery drain hook
+kernel/sysproc.c    battery and app-state system calls
+kernel/kalloc.c     kfreepages(), ktotalpages()
+kernel/param.h      tunable constants
+user/launcher.c     dashboard
+user/memhog.c       memory stress test
+user/idleapp.c      idle victim app
+user/schedtest.c, user/batterytest.c, user/testsubsys.c   tests
+
+
+10. KNOWN LIMITATIONS
+---------------------
+* The LMK kills one app per check, with a short cooldown, so under very
+  fast allocation memory can briefly dip below the threshold.
+* Memory is only returned once the killed app's parent reaps it.
+* The battery is simulated; it does not model different apps draining at
+  different rates.
+* memhog allocates with sbrk(), which is eager. Lazy allocation (sbrklazy)
+  would not consume memory until pages are touched.
+
+
+11. TEAM
+--------
+Add team member names and their parts here.

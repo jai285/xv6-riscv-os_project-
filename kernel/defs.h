@@ -194,5 +194,6 @@ int             setappstate_k(int pid, int state);
 void            battery_tick(void);
 void            lmk_check(void);
 extern int      battery;
+extern struct spinlock battery_lock;
 extern int      throttle_on;
 

@@ -145,7 +145,11 @@ sys_setappstate(void)
 uint64
 sys_getbattery(void)
 {
-  return battery;
+  int b;
+  acquire(&battery_lock);
+  b = battery;
+  release(&battery_lock);
+  return b;
 }
 
 uint64
@@ -155,7 +159,9 @@ sys_setbattery(void)
   argint(0, &val);
   if(val < 0 || val > 100)
     return -1;
+  acquire(&battery_lock);
   battery = val;
+  release(&battery_lock);
   return 0;
 }
 

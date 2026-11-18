@@ -85,11 +85,12 @@ usertrap(void)
   // give up the CPU if this is a timer interrupt.
   if (which_dev == 2)
 {
-p->cpu_ticks++;
-if(p->app_state==FOREGROUND);
-p->last_active=ticks;
-p->slice_left--;
-if(p->slice_left<=0)
+  p->cpu_ticks++;
+  // only a FOREGROUND app counts as "active" for LRU purposes
+  if (p->app_state == FOREGROUND)
+    p->last_active = ticks;
+  p->slice_left--;
+  if (p->slice_left <= 0)
     yield();
 }
 
@@ -183,6 +184,13 @@ clockintr()
     ticks++;
     wakeup(&ticks);
     release(&tickslock);
+
+    // drain the battery once every BATTERY_DRAIN_TICKS timer ticks
+    static int battery_count = 0; // only touched by cpu 0
+    if (++battery_count >= BATTERY_DRAIN_TICKS) {
+      battery_count = 0;
+      battery_tick();
+    }
   }
 
   // ask for the next timer interrupt. this also clears

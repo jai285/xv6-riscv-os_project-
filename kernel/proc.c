@@ -8,6 +8,8 @@
 #include "defs.h"
 
 int battery = 100;
+struct spinlock battery_lock;
+struct spinlock lmk_lock;
 int throttle_on = 1;
 
 struct cpu cpus[NCPU];
@@ -55,6 +57,8 @@ procinit(void)
 
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
+  initlock(&battery_lock, "battery");
+  initlock(&lmk_lock, "lmk");
   for (p = proc; p < &proc[NPROC]; p++) {
     initlock(&p->lock, "proc");
     p->state = UNUSED;
@@ -460,7 +464,9 @@ scheduler(void)
        release(&p->lock);
        continue;
 }
-      if (p->state == RUNNABLE && p->app_state !=SUSPENDED) {
+      // a SUSPENDED process is skipped, unless it was killed: it must run once
+      // so that it can notice p->killed and exit.
+      if (p->state == RUNNABLE && (p->app_state != SUSPENDED || p->killed)) {
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
@@ -782,6 +788,97 @@ procinfo_print(void)
   }
 }
 
-// Stubs for battery and killer hooks so compilation succeeds
-void battery_tick(void) {}
-void lmk_check(void) {}
+// Called from clockintr() every BATTERY_DRAIN_TICKS timer ticks.
+// Drains the global battery by 1% (never below 0).
+void
+battery_tick(void)
+{
+  acquire(&battery_lock);
+  if (battery > 0)
+    battery--;
+  release(&battery_lock);
+}
+
+// Low-Memory Killer. Called from scheduler() with no locks held.
+// If free memory is below LMK_MIN_FREE_PAGES, kill ONE non-essential
+// process: SUSPENDED apps first, then BACKGROUND apps, and within each
+// class the least recently active (smallest last_active) first.
+// FOREGROUND processes and init are never killed.
+void
+lmk_check(void)
+{
+  static uint last_check = 0;  // protected by lmk_lock
+  static uint last_kill = 0;   // protected by lmk_lock
+  static int killed_once = 0;  // protected by lmk_lock
+  struct proc *p;
+  int victim_pid = 0;
+  int victim_class = -1;
+  uint victim_active = 0;
+  int victim_state = 0;
+  char victim_name[16];
+
+  // kfreepages() walks the whole free list, so run at most once per tick.
+  acquire(&lmk_lock);
+  if (ticks == last_check && last_check != 0) {
+    release(&lmk_lock);
+    return;
+  }
+  last_check = ticks;
+  if (killed_once && ticks - last_kill < LMK_COOLDOWN_TICKS) {
+    release(&lmk_lock);
+    return; // give the previous victim time to exit and be reaped
+  }
+  release(&lmk_lock);
+
+  if (kfreepages() >= LMK_MIN_FREE_PAGES)
+    return;
+
+  // Pass 1: choose a victim.
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p != initproc && p->pid > 1 &&
+        p->state != UNUSED && p->state != ZOMBIE && p->state != USED &&
+        !p->killed && p->app_state != FOREGROUND) {
+      // class 1 = SUSPENDED (best victim), class 0 = BACKGROUND
+      int class = (p->app_state == SUSPENDED) ? 1 : 0;
+      if (victim_class < 0 || class > victim_class ||
+          (class == victim_class && p->last_active < victim_active)) {
+        victim_pid = p->pid;
+        victim_class = class;
+        victim_active = p->last_active;
+        victim_state = p->app_state;
+        safestrcpy(victim_name, p->name, sizeof(victim_name));
+      }
+    }
+    release(&p->lock);
+  }
+
+  if (victim_pid == 0)
+    return; // nothing safe to kill
+
+  // Pass 2: kill it (re-check, the table may have changed meanwhile).
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->pid == victim_pid && p->state != UNUSED && p->state != ZOMBIE &&
+        !p->killed) {
+      p->killed = 1;
+      // A SUSPENDED process is never scheduled, so it would never notice
+      // it was killed. Move it to BACKGROUND so it can run and exit.
+      if (p->app_state == SUSPENDED)
+        p->app_state = BACKGROUND;
+      if (p->state == SLEEPING)
+        p->state = RUNNABLE; // wake it so it sees p->killed
+      release(&p->lock);
+
+      acquire(&lmk_lock);
+      last_kill = ticks;
+      killed_once = 1;
+      release(&lmk_lock);
+
+      printk("lmk: free pages low, killed pid %d (%s, %s)\n", victim_pid,
+             victim_name, victim_state == SUSPENDED ? "SUSPENDED" : "BACKGROUND");
+      return;
+    }
+    release(&p->lock);
+  }
+}

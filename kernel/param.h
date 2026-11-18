@@ -12,3 +12,7 @@
 #define FSSIZE      2000              // size of file system in blocks
 #define MAXPATH     128               // maximum file path name
 #define USERSTACK   1                 // user stack pages
+
+#define LMK_MIN_FREE_PAGES    50   // kill apps when free pages drop below this
+#define LMK_COOLDOWN_TICKS    2    // min ticks between two LMK kills
+#define BATTERY_DRAIN_TICKS   500  // timer ticks per 1% battery drain
